@@ -18,6 +18,8 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
     private Button appearance;
     private Button importCorpus, clearCorpus, updateLibrary;
     private TextView libraryStatus;
+    private Button cancelLibrary;
+    private Switch autoLibrary;
     private boolean importingCorpus;
     private Switch fast;
     private boolean refreshing;
@@ -35,7 +37,9 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
         section(tr("翻译参考资料","Translation reference material"));
         updateLibrary=button(tr("更新参考资料库","Update reference library"));
         updateLibrary.setOnClickListener(v->confirmLibraryUpdate());add(updateLibrary,48);
-        libraryStatus=Ui.text(this,"",12,Ui.MUTED);content.addView(libraryStatus);
+        libraryStatus=Ui.text(this,getSharedPreferences("publication-library",0).getString("lastStatus",""),12,Ui.MUTED);content.addView(libraryStatus);
+        cancelLibrary=button(tr("取消更新","Cancel update"));cancelLibrary.setOnClickListener(v->{PublicationLibrary.cancel();Ui.setText(libraryStatus,tr("正在取消","Cancelling update"));});add(cancelLibrary,48);
+        autoLibrary=toggle(tr("每周自动更新","Update weekly"),tr("仅在 Wi-Fi、充电且设备空闲时更新","When on an unmetered connection, charging and idle"),PublicationUpdateJob.enabled(this),(v,on)->{if(!refreshing)PublicationUpdateJob.setEnabled(this,on);});
         hint(tr("从出版者下载 EPUB；仅在联网准备时使用网络。实验性自动对齐。","Download EPUB files from the publisher; network is used only during preparation. Automatic alignment is experimental."));
         importCorpus=button(tr("导入双语 TSV","Import bilingual TSV"));
         importCorpus.setOnClickListener(v->{
@@ -117,13 +121,15 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
         String route=Ui.modelSummary(this,engine);if(!engine.translationAvailable()||engine.recognitionUsesEnglishBridge())route+="\n"+Ui.offlineRouteExplanation(this,engine);Ui.setText(translationStatus,route);translationStatus.setVisibility(!engine.translationAvailable()||engine.recognitionUsesEnglishBridge()?View.VISIBLE:View.GONE);
         Ui.setText(sourceLanguage,tr("说话语言：","Spoken language: ")+SpeechLanguage.label(this,engine.sourceLanguage())+"  ▾");sourceLanguage.setEnabled(!blocked);
         Ui.setText(targetLanguage,tr("字幕语言：","Subtitle language: ")+SpeechLanguage.label(this,engine.targetLanguage())+"  ▾");targetLanguage.setEnabled(!blocked);
-        int corpusRows=CorpusStore.current(this).size();
-        Ui.setText(importCorpus,tr("导入双语 TSV","Import bilingual TSV")+" ("+corpusRows+")");
+        int corpusRows=CorpusStore.sizeIfLoaded();
+        Ui.setText(importCorpus,tr("导入双语 TSV","Import bilingual TSV")+(corpusRows>=0?" ("+corpusRows+")":""));
         boolean updating=PublicationLibrary.running();
         boolean network=getPackageManager().checkPermission(android.Manifest.permission.INTERNET,getPackageName())==android.content.pm.PackageManager.PERMISSION_GRANTED;
         updateLibrary.setEnabled(network&&!blocked&&!importingCorpus&&!updating&&PublicationLibrary.supports(engine.sourceLanguage(),engine.targetLanguage()));
         importCorpus.setEnabled(!blocked&&!importingCorpus&&!updating);
-        clearCorpus.setEnabled(!blocked&&!importingCorpus&&!updating&&corpusRows>0);
+        cancelLibrary.setVisibility(updating?View.VISIBLE:View.GONE);
+        autoLibrary.setEnabled(network&&!blocked&&!importingCorpus);
+        clearCorpus.setEnabled(!blocked&&!importingCorpus&&!updating&&(corpusRows>0||CorpusStore.exists(this)));
         fast.setEnabled(!CaptionState.S.running);export.setEnabled(!CaptionState.S.lines.isEmpty());clear.setEnabled(!CaptionState.S.running&&!CaptionState.S.lines.isEmpty());String lang=AppPrefs.language(this);Ui.setText(language,tr("界面语言：","App language: ")+AppLanguage.label(this,lang));
         String info=tr("瞬译 ","Instant Caption ")+BuildConfig.VERSION_NAME+"\n"+getString(R.string.about_local_models);Ui.setText(about,info);
     }

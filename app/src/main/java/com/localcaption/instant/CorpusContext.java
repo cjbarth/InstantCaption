@@ -15,6 +15,7 @@ final class CorpusContext {
     private final List<Entry> entries;
     private final Map<String,List<Entry>> passageIndex = new HashMap<>();
     private final List<Entry> terms = new ArrayList<>();
+    private final Map<Entry,Integer> order = new IdentityHashMap<>();
 
     private static final class Entry {
         final boolean term;
@@ -31,6 +32,7 @@ final class CorpusContext {
     private CorpusContext(List<Entry> entries) {
         this.entries = Collections.unmodifiableList(new ArrayList<>(entries));
         for (Entry e : entries) {
+            order.put(e,order.size());
             if (e.term) terms.add(e);
             else for (String word : e.words)
                 passageIndex.computeIfAbsent(e.sourceLang+" "+e.targetLang+" "+word,k->new ArrayList<>()).add(e);
@@ -119,12 +121,12 @@ final class CorpusContext {
                 for (String w : query) if (e.words.contains(w)) overlap++;
                 double coverage = (double) overlap / Math.min(query.size(), e.words.size());
                 double score = (double) overlap / (query.size() + e.words.size() - overlap);
-                if (overlap >= 3 && coverage >= .70 && score >= .35 && score > best) {
+                if (overlap >= 3 && coverage >= .70 && score >= .35 && (score > best || (score == best && passage!=null && order.get(e)<order.get(passage)))) {
                     passage = e; best = score;
                 }
             }
         }
-        terms.sort((a,b) -> Integer.compare(b.normalized.length(), a.normalized.length()));
+        terms.sort((a,b) -> {int length=Integer.compare(b.normalized.length(),a.normalized.length());return length!=0?length:Integer.compare(order.get(a),order.get(b));});
         StringBuilder out = new StringBuilder();
         int count = 0;
         for (Entry e : terms) {

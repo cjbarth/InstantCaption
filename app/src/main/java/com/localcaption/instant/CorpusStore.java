@@ -25,6 +25,8 @@ final class CorpusStore {
         }
         return snapshot;
     }
+    static synchronized int sizeIfLoaded(){return snapshot==null?-1:snapshot.size();}
+    static boolean exists(Context c){return file(c,false).getBaseFile().exists()||file(c,true).getBaseFile().exists()||PublicationLibrary.hasCache(c);}
     static int replace(Context c,InputStream in)throws IOException{return replace(c,in,false);}
     static int replaceLibrary(Context c,InputStream in)throws IOException{return replace(c,in,true);}
     private static int replace(Context c,InputStream in,boolean downloaded)throws IOException{
@@ -44,6 +46,7 @@ final class CorpusStore {
     static synchronized void clear(Context c){
         file(c,false).delete();file(c,true).delete();
         PublicationLibrary.clearCache(c);
+        c.getSharedPreferences("publication-library",0).edit().remove("lastStatus").apply();
         snapshot=manual=library=CorpusContext.EMPTY;
     }
 }

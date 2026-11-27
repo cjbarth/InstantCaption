@@ -20,12 +20,19 @@ final class PublicationLibrary {
     private static final AtomicBoolean RUNNING=new AtomicBoolean();
     private static final String[] GENERAL={"ijwbq","ijwyp","ijwcl","ijwfq","mrt","lff","od","scl","nwt","it"};
     private static final DateTimeFormatter ISSUE=DateTimeFormatter.ofPattern("yyyyMM",Locale.ROOT);
-    private static final Map<String,String> LANG=Map.of("id","IN","en","E");
+    private static final Map<String,String> LANG=new HashMap<>();
+    static{LANG.put("id","IN");LANG.put("en","E");}
     static boolean supports(String from,String to){return !from.equals(to)&&LANG.containsKey(from)&&LANG.containsKey(to);}
     static boolean running(){return RUNNING.get();}
-    static boolean start(){return RUNNING.compareAndSet(false,true);}
-    static void finish(){RUNNING.set(false);}
+    private static volatile Thread worker;
+    private static volatile boolean cancelled;
+    private static volatile HttpURLConnection connection;
+    static synchronized boolean start(){if(!RUNNING.compareAndSet(false,true))return false;cancelled=false;return true;}
+    static synchronized void finish(){worker=null;connection=null;RUNNING.set(false);}
+    static void cancel(){cancelled=true;Thread t=worker;if(t!=null)t.interrupt();HttpURLConnection c=connection;if(c!=null)c.disconnect();}
+    private static void checkCancelled()throws InterruptedIOException{if(cancelled||Thread.currentThread().isInterrupted())throw new InterruptedIOException("Update cancelled");}
     private static File dir(Context c){return new File(c.getNoBackupFilesDir(),"publication-library");}
+    static boolean hasCache(Context c){String[] files=dir(c).list();return files!=null&&files.length>0;}
     static void clearCache(Context c){if(running())return;File[] files=dir(c).listFiles();if(files!=null)for(File f:files)if(f.isFile())f.delete();}
     private static final class Pub{
         final String symbol,issue;
@@ -51,8 +58,8 @@ final class PublicationLibrary {
     private static HttpURLConnection open(String value)throws Exception{
         URL url=allowed(value);
         for(int redirects=0;redirects<=5;redirects++){
-            if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Update interrupted");
-            HttpURLConnection c=(HttpURLConnection)url.openConnection();
+            checkCancelled();
+            HttpURLConnection c=(HttpURLConnection)url.openConnection();connection=c;
             c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(30000);
             c.setRequestProperty("User-Agent","PersonalCorpusPrototype/0.1");
             c.setRequestProperty("Accept-Encoding","identity");
@@ -107,7 +114,7 @@ final class PublicationLibrary {
             try(InputStream in=c.getInputStream();OutputStream out=new FileOutputStream(temp)){
                 byte[] buffer=new byte[65536];long total=0;int n;
                 while((n=in.read(buffer))!=-1){
-                    if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Update interrupted");
+                    checkCancelled();
                     if((total+=n)>r.size)throw new IOException("Publication exceeds stated size");
                     out.write(buffer,0,n);if(digest!=null)digest.update(buffer,0,n);
                 }
@@ -151,18 +158,19 @@ final class PublicationLibrary {
         }finally{if(x!=null)x.delete();if(y!=null)y.delete();}
     }
     static String synchronize(Context c,String from,String to,Consumer<String> progress)throws Exception{
+        worker=Thread.currentThread();checkCancelled();
         if(!supports(from,to))throw new IOException("Publication downloads currently support Indonesian and English");
         File dir=dir(c);if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Cannot create reference directory");
         ByteArrayOutputStream all=new ByteArrayOutputStream();
         int done=0,failed=0,cached=0,rows=0;List<Pub> publications=plan();String firstFailure="";
         for(Pub pub:publications){
-            if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Update interrupted");
+            checkCancelled();
             progress.accept("Updating "+pub.key()+" ("+(++done)+"/"+publications.size()+")");
             AtomicFile file=new AtomicFile(new File(dir,from+"-"+to+"-"+pub.key()+".bin"));
             Pair pair=read(file);
             try{pair=update(dir,file,pair,pub,from,to);}
             catch(InterruptedException e){throw e;}
-            catch(Exception e){failed++;if(firstFailure.isEmpty())firstFailure=pub.key()+": "+e.getMessage();if(pair!=null)cached++;}
+            catch(Exception e){checkCancelled();failed++;if(firstFailure.isEmpty())firstFailure=pub.key()+": "+e.getMessage();if(pair!=null)cached++;}
             if(pair!=null){
                 // Keep complete UTF-8 lines and bound the active corpus; weekly material is first.
                 int start=0;
@@ -174,8 +182,10 @@ final class PublicationLibrary {
             }
         }
         if(rows==0)throw new IOException("No aligned references; previous library retained. "+firstFailure);
+        checkCancelled();
         int count=CorpusStore.replaceLibrary(c,new ByteArrayInputStream(all.toByteArray()));
-        return count+" reference entries; "+failed+" unavailable or failed, "+cached+" retained from cache"+
+        String status=count+" reference entries; "+failed+" unavailable or failed, "+cached+" retained from cache"+
             (firstFailure.isEmpty()?"":". First failure: "+firstFailure);
+        c.getSharedPreferences("publication-library",0).edit().putString("lastStatus",status).apply();return status;
     }
 }
