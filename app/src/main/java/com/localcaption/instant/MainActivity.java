@@ -87,6 +87,7 @@ public class MainActivity extends BaseActivity implements CaptionState.Observer 
     }
     private void begin(){
         if(ModelStore.active)return;
+        if(PublicationLibrary.running()){PublicationLibrary.cancel();CaptionState.S.status(tr("正在取消参考资料更新，请重试","Cancelling reference update. Try Start again."));return;}
         if(playback&&!AppPrefs.prefs(this).getBoolean("captureExplained",false)){
             new android.app.AlertDialog.Builder(this).setTitle(tr("手机声音","Device audio")).setMessage(R.string.playback_permission).setNegativeButton(android.R.string.cancel,null).setPositiveButton(tr("继续","Continue"),(d,w)->{AppPrefs.prefs(this).edit().putBoolean("captureExplained",true).apply();begin();}).show();return;
         }

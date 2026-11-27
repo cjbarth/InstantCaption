@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <application android:name=".CaptionApplication" android:label="@string/app_name" android:localeConfig="@xml/locales_config" android:theme="@style/AppTheme" android:icon="@drawable/ic_app" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true" android:usesCleartextTraffic="false" android:allowAudioPlaybackCapture="true">
         <uses-native-library android:name="libcdsprpc.so" android:required="false"/>
@@ -24,5 +25,6 @@
         <activity android:name=".ModelManagerActivity" android:exported="false"/>
         <service android:name=".CaptionService" android:exported="false" android:foregroundServiceType="microphone|mediaProjection"/>
         <service android:name=".ModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync"/>
+        <service android:name=".PublicationUpdateJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false"/>
     </application>
 </manifest>

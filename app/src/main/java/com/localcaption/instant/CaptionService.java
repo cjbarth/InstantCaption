@@ -41,6 +41,7 @@ public class CaptionService extends Service implements CaptionState.Observer {
                 .setVisibility(Notification.VISIBILITY_PRIVATE).setContentIntent(pi).setOngoing(true).addAction(new Notification.Action.Builder(null,Ui.t(this,"停止","Stop"),stop).build()).build();
             int serviceType=playback?ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION:(Build.VERSION.SDK_INT>=30?ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE:0);
             startForeground(1,n,serviceType);
+            if(PublicationLibrary.running()){PublicationLibrary.cancel();throw new IllegalStateException("Reference update is stopping; retry captions");}
             if (!CaptionState.S.ready) throw new IllegalStateException("请先准备离线模型");
             if (playback) {
                 Intent data=Build.VERSION.SDK_INT>=33?intent.getParcelableExtra("projectionData",Intent.class):intent.getParcelableExtra("projectionData");

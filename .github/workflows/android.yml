@@ -21,6 +21,13 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
         with:
           packages: platform-tools
+      - name: Test corpus and synchronization
+        run: |
+          javac -d /tmp/corpus-test app/src/main/java/com/localcaption/instant/CorpusContext.java tools/corpus/CorpusContextTest.java
+          java -cp /tmp/corpus-test com.localcaption.instant.CorpusContextTest
+          javac -d /tmp/corpus-test app/src/main/java/com/localcaption/instant/JwpubCipher.java tools/corpus/JwpubCipherTest.java
+          java -cp /tmp/corpus-test com.localcaption.instant.JwpubCipherTest
+          python -m unittest discover -s tools/corpus -p 'test_*.py' -v
       - name: Prepare pinned build dependencies
         run: |
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.31.6'
@@ -32,7 +39,7 @@ jobs:
       - name: Build and inspect
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug -Pportable=true
+          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug -Pportable=true -PapplicationId=com.localcaption.instant.corpus
           python tools/check_apk.py app/build/outputs/apk/debug/app-debug.apk --portable > portable-package-report.json
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
