@@ -11,8 +11,14 @@ import java.util.function.BooleanSupplier;
 final class CpuTranslator implements TranslationRouter.Backend {
     private long handle;
     private final String instruction;
+    private final Context context;
+    private final String source, target;
+    private CorpusContext cachedCorpus;
     private final LinkedHashMap<String,String> cache=new LinkedHashMap<>();
     CpuTranslator(Context context,String source,String target,QwenModel model)throws Exception{
+        this.context=context.getApplicationContext();
+        this.source=SpeechLanguage.normalize(source);
+        this.target=SpeechLanguage.normalize(target);
         if(!model.isCpu()||!model.isSupported(context)||!model.supportsLanguages(source,target))throw new IllegalArgumentException("Unsupported CPU translation route");
         if(!model.isInstalled(context))throw new TranslationRouter.ModelMissingException(model.label+" model is not installed");
         RuntimeHealth.beforeLoad(context,model);System.loadLibrary("caption_cpu");
@@ -23,13 +29,15 @@ final class CpuTranslator implements TranslationRouter.Backend {
     }
     @Override public synchronized String translate(String text,BooleanSupplier current)throws Exception{
         check(current);String input=text.trim();if(input.isEmpty())return "";
+        CorpusContext corpus=CorpusStore.current(context);
+        if(cachedCorpus!=corpus){cache.clear();cachedCorpus=corpus;}
         String cached=cache.get(input);if(cached!=null)return cached;
-        String result=CompleteTranslation.translate(input,current,this::generate);check(current);
+        String result=CompleteTranslation.translate(input,current,(part,active)->generate(part,active,corpus));check(current);
         cache.put(input,result);if(cache.size()>96)cache.remove(cache.keySet().iterator().next());return result;
     }
-    private String generate(String text,BooleanSupplier current)throws Exception{
+    private String generate(String text,BooleanSupplier current,CorpusContext corpus)throws Exception{
         text=text.replace("<|","＜|").replace("|>","|＞");
-        check(current);nativeBegin(handle,(instruction+text).getBytes(StandardCharsets.UTF_8));
+        check(current);nativeBegin(handle,(corpus.prefix(source,target,text)+instruction+text).getBytes(StandardCharsets.UTF_8));
         while(true){check(current);if(nativePrefill(handle))break;}
         ByteArrayOutputStream out=new ByteArrayOutputStream();
         for(int tokens=0;tokens<256;tokens++){
