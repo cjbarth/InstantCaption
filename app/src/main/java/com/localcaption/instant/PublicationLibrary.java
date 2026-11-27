@@ -94,12 +94,12 @@ final class PublicationLibrary {
         throw new IOException("Too many redirects");
     }
     private static final class Remote{
-        String url,checksum,modified;long size;
-        String identity(){return (checksum.isEmpty()?modified:checksum)+":"+size;}
+        String url,checksum,modified,format;long size;
+        String identity(){return format+":"+(checksum.isEmpty()?modified:checksum)+":"+size;}
         boolean comparable(){return !checksum.isEmpty()||!modified.isEmpty();}
     }
-    private static Remote metadata(Pub pub,String lang)throws Exception{
-        String url=ENDPOINT+"?booknum=0&output=json&pub="+pub.symbol+"&fileformat=EPUB&alllangs=0&langwritten="+lang+"&txtCMSLang="+lang+
+    private static Remote metadata(Pub pub,String lang,String format)throws Exception{
+        String url=ENDPOINT+"?booknum=0&output=json&pub="+pub.symbol+"&fileformat="+format+"&alllangs=0&langwritten="+lang+"&txtCMSLang="+lang+
             (pub.issue.isEmpty()?"":"&issue="+pub.issue);
         HttpURLConnection c=open(url);
         JSONObject payload;
@@ -111,19 +111,20 @@ final class PublicationLibrary {
         if(!pub.symbol.equals(payload.optString("pub",pub.symbol)))throw new IOException("Wrong publication");
         String issue=payload.optString("issue","");
         if(!pub.issue.isEmpty()&&!issue.isEmpty()&&!issue.equals(pub.issue)&&!issue.equals(pub.issue+"00"))throw new IOException("Wrong issue");
-        JSONArray files=payload.getJSONObject("files").getJSONObject(lang).getJSONArray("EPUB");
+        JSONArray files=payload.getJSONObject("files").getJSONObject(lang).optJSONArray(format);
+        if(files==null||files.length()==0)throw new IOException("No "+format+" file");
         JSONObject row=null;
         for(int i=0;i<files.length();i++){
             JSONObject option=files.getJSONObject(i);
             if(files.length()>1&&(!option.optString("edition","").isEmpty()||!option.optString("format","").isEmpty()))continue;
-            if(row!=null)throw new IOException("Ambiguous regular EPUB");
+            if(row!=null)throw new IOException("Ambiguous publication edition");
             row=option;
         }
-        if(row==null)throw new IOException("No regular EPUB");
+        if(row==null)throw new IOException("No regular publication edition");
         if(!pub.symbol.equals(row.optString("pub",pub.symbol)))throw new IOException("Wrong publication file");
-        if(!"application/epub+zip".equals(row.optString("mimetype","application/epub+zip")))throw new IOException("Not an EPUB file");
+        if("EPUB".equals(format)&&!"application/epub+zip".equals(row.optString("mimetype","application/epub+zip")))throw new IOException("Not an EPUB file");
         JSONObject file=row.getJSONObject("file");
-        Remote r=new Remote();r.url=allowed(file.getString("url")).toString();
+        Remote r=new Remote();r.format=format;r.url=allowed(file.getString("url")).toString();
         r.checksum=file.optString("checksum","");r.modified=file.optString("modifiedDatetime",file.optString("modifiedDateTime",""));
         r.size=row.optLong("filesize",row.optLong("fileSize",-1));
         if(r.size<=0||r.size>MAX_FILE)throw new IOException("Invalid publication size");
@@ -131,7 +132,7 @@ final class PublicationLibrary {
     }
     private static String hex(byte[] bytes){StringBuilder out=new StringBuilder();for(byte x:bytes)out.append(String.format(Locale.ROOT,"%02x",x&255));return out.toString();}
     private static File fetch(File dir,Remote r)throws Exception{
-        File temp=File.createTempFile("download-",".epub",dir);
+        File temp=File.createTempFile("download-","."+r.format.toLowerCase(Locale.ROOT),dir);
         String checksum=r.checksum.toLowerCase(Locale.ROOT);
         String algorithm=checksum.matches("[0-9a-f]{32}")?"MD5":checksum.matches("[0-9a-f]{40}")?"SHA-1":checksum.matches("[0-9a-f]{64}")?"SHA-256":null;
         MessageDigest digest=algorithm==null?null:MessageDigest.getInstance(algorithm);
@@ -171,13 +172,23 @@ final class PublicationLibrary {
         }catch(IOException|RuntimeException e){file.failWrite(stream);throw e;}
     }
     private static Pair update(File dir,AtomicFile file,Pair old,Pub pub,String from,String to)throws Exception{
-        Remote a=metadata(pub,LANG.get(from));Thread.sleep(500);
-        Remote b=metadata(pub,LANG.get(to));Thread.sleep(500);
+        Exception first=null;
+        for(String format:new String[]{"JWPUB","EPUB"}){
+            try{return updateFormat(dir,file,old,pub,from,to,format);}
+            catch(InterruptedException e){throw e;}
+            catch(Exception e){checkCancelled();if(first==null)first=e;else e.addSuppressed(first);if("EPUB".equals(format))throw e;}
+        }
+        throw new IOException("No compatible publication pair",first);
+    }
+    private static Pair updateFormat(File dir,AtomicFile file,Pair old,Pub pub,String from,String to,String format)throws Exception{
+        Remote a=metadata(pub,LANG.get(from),format);Thread.sleep(500);
+        Remote b=metadata(pub,LANG.get(to),format);Thread.sleep(500);
         if(old!=null&&a.comparable()&&b.comparable()&&old.left.equals(a.identity())&&old.right.equals(b.identity()))return old;
         File x=null,y=null;
         try{
             x=fetch(dir,a);Thread.sleep(500);y=fetch(dir,b);
-            Pair result=new Pair(a.identity(),b.identity(),EpubAlignment.align(x,y,from,to));
+            byte[] rows="JWPUB".equals(format)?JwpubAlignment.align(x,y,dir,pub.symbol,pub.issue,from,to):EpubAlignment.align(x,y,from,to);
+            Pair result=new Pair(a.identity(),b.identity(),rows);
             // Validate before changing the pair cache.
             if(CorpusContext.parse(result.rows).size()==0)throw new IOException("Empty reference material");
             save(file,result);return result;

@@ -25,6 +25,8 @@ jobs:
         run: |
           javac -d /tmp/corpus-test app/src/main/java/com/localcaption/instant/CorpusContext.java tools/corpus/CorpusContextTest.java
           java -cp /tmp/corpus-test com.localcaption.instant.CorpusContextTest
+          javac -d /tmp/corpus-test app/src/main/java/com/localcaption/instant/JwpubCipher.java tools/corpus/JwpubCipherTest.java
+          java -cp /tmp/corpus-test com.localcaption.instant.JwpubCipherTest
           python -m unittest discover -s tools/corpus -p 'test_*.py' -v
       - name: Prepare pinned build dependencies
         run: |

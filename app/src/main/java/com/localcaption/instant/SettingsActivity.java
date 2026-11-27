@@ -40,7 +40,7 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
         libraryStatus=Ui.text(this,getSharedPreferences("publication-library",0).getString("lastStatus",""),12,Ui.MUTED);content.addView(libraryStatus);
         cancelLibrary=button(tr("取消更新","Cancel update"));cancelLibrary.setOnClickListener(v->{PublicationLibrary.cancel();Ui.setText(libraryStatus,tr("正在取消","Cancelling update"));});add(cancelLibrary,48);
         autoLibrary=toggle(tr("每周自动更新","Update weekly"),tr("仅在 Wi-Fi、充电且设备空闲时更新","When on an unmetered connection, charging and idle"),PublicationUpdateJob.enabled(this),(v,on)->{if(!refreshing)PublicationUpdateJob.setEnabled(this,on);});
-        hint(tr("从出版者下载 EPUB；仅在联网准备时使用网络。实验性自动对齐。","Download EPUB files from the publisher; network is used only during preparation. Automatic alignment is experimental."));
+        hint(tr("从出版者下载出版物；仅在联网准备时使用网络。实验性自动对齐。","Download publication files from the publisher; network is used only during preparation. Automatic alignment is experimental."));
         importCorpus=button(tr("导入双语 TSV","Import bilingual TSV"));
         importCorpus.setOnClickListener(v->{
             if(importingCorpus||PublicationLibrary.running()||LocalEngine.get(this).configurationBusy())return;
@@ -77,7 +77,7 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
         String from=engine.sourceLanguage(),to=engine.targetLanguage();
         if(importingCorpus||engine.configurationBusy()||PublicationLibrary.running()||!PublicationLibrary.supports(from,to))return;
         new AlertDialog.Builder(this).setTitle(tr("更新参考资料库","Update reference library"))
-            .setMessage(tr("从 jw.org 下载公开 EPUB 文件，仅供个人非商业用途。自动对齐可能出错。","Download public EPUB files from jw.org for personal, noncommercial use. Automatic alignment may be inaccurate. Use Wi-Fi; downloads may be large."))
+            .setMessage(tr("从 jw.org 下载公开出版物，仅供个人非商业用途。自动对齐可能出错。","Download public JWPUB or EPUB files from jw.org for personal, noncommercial use. Automatic alignment may be inaccurate. Use Wi-Fi; downloads may be large."))
             .setNegativeButton(android.R.string.cancel,null)
             .setPositiveButton(android.R.string.ok,(d,w)->startLibraryUpdate(from,to)).show();
     }

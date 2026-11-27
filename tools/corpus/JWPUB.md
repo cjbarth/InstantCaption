@@ -1,0 +1,7 @@
+# Experimental JWPUB support
+
+The Android updater prefers matching JWPUB files and falls back to EPUB if either language is unavailable or the JWPUB pair cannot be read. Downloads are from the existing publisher metadata interface. JWPUB content is read from a temporary SQLite database in read-only mode, using the publicly documented z-a convention. Matching MEPS document IDs and data-pid values, or BibleVerseId values, provide candidate bilingual references. These identifiers do not prove semantic equivalence. No publication text, files, or corpus indexes are included in source control. Extracted text remains on the device.
+
+Format references: https://github.com/thenights20/jwpub-toolkit/blob/main/JWPUB_FORMAT.md and https://pkg.go.dev/github.com/jjuanrivvera/jwpubkit/internal/jwpub . The Java implementation is independently written. HTML parsing uses jsoup (MIT), https://jsoup.org/ .
+
+This is a proof of concept, not a released app. Permission to distribute the JWPUB decoder has not been obtained; obtain publisher clarification before distributing a production APK. The repository is public, so the source itself is visible. The live publisher endpoint, real bilingual JWPUB alignment, Android build and on-device inference have not been verified. Long content is skipped to preserve existing bounded retrieval; the active corpus remains limited by its previous size cap. Actual publication variants and schemas may require adjustments. Use synthetic data in tests.
