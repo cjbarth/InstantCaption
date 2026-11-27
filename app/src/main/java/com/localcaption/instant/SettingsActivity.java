@@ -55,7 +55,7 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
                     if(!importingCorpus&&!PublicationLibrary.running()&&!LocalEngine.get(this).configurationBusy()){CorpusStore.clear(this);changed();}
                 }).show();
         });add(clearCorpus,48);
-        hint(tr("仅用于 HY-MT2。导入新的文件会替换本地参考资料。","HY-MT2 only. Importing a new file replaces manual entries; downloaded references are separate."));
+        hint(tr("仅用于 HY-MT2。导入新的文件会替换手动条目。","HY-MT2 only. Importing a new file replaces manual entries; downloaded references are separate."));
         section(tr("字幕显示","Caption display"));
         appearance=button("");appearance.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);appearance.setPadding(dp(14),dp(12),dp(14),dp(12));appearance.setOnClickListener(v->startActivity(new Intent(this,AppearanceActivity.class)));add(appearance,64);
         fast=toggle(tr("极速字幕","Fast captions"),tr("更频繁更新草稿；停止字幕后可修改","Updates drafts more often; stop captions before changing"),AppPrefs.fast(this),(v,on)->{if(!refreshing)AppPrefs.put(this,"fast",on);});

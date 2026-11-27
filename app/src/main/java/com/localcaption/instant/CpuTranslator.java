@@ -37,7 +37,12 @@ final class CpuTranslator implements TranslationRouter.Backend {
     }
     private String generate(String text,BooleanSupplier current,CorpusContext corpus)throws Exception{
         text=text.replace("<|","＜|").replace("|>","|＞");
-        check(current);nativeBegin(handle,(corpus.prefix(source,target,text)+instruction+text).getBytes(StandardCharsets.UTF_8));
+        String prefix=corpus.prefix(source,target,text);
+        String prompt=prefix.contains("[Background Information]")?
+            prefix+"Translate the following text into "+("zh".equals(target)?"Simplified Chinese":SpeechLanguage.fromId(target).en)+
+                ", considering the background information. Output only the translation of the source text, without explanation.\n[Source Text]\n"+text:
+            prefix+instruction+text;
+        check(current);nativeBegin(handle,prompt.getBytes(StandardCharsets.UTF_8));
         while(true){check(current);if(nativePrefill(handle))break;}
         ByteArrayOutputStream out=new ByteArrayOutputStream();
         for(int tokens=0;tokens<256;tokens++){

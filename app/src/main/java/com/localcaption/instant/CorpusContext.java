@@ -99,7 +99,7 @@ final class CorpusContext {
         return (" " + text + " ").contains(" " + phrase + " ");
     }
     private static String safe(String s) {
-        return s.replace("<|", "＜|").replace("|>", "|＞").replace("<", "＜").replace(">", "＞");
+        return s.replace("<|", "＜|").replace("|>", "|＞").replace("<", "＜").replace(">", "＞").replace("[", "［").replace("]", "］");
     }
     /** Select only matching language pairs; bound added prompt text and use lexical overlap. */
     String prefix(String sourceLang, String targetLang, String speech) {

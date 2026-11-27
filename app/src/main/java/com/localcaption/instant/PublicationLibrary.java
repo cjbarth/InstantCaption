@@ -18,7 +18,7 @@ final class PublicationLibrary {
     private static final String ENDPOINT="https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS";
     private static final long MAX_FILE=150L*1024*1024;
     private static final AtomicBoolean RUNNING=new AtomicBoolean();
-    private static final String[] GENERAL={"ijwbq","ijwyp","ijwcl","ijwfq","mrt","lff","od","scl","nwt","it"};
+    private static final String[] GENERAL={"ijwbq","ijwyp","ijwcl","ijwfq","ijwbv","ijwhf","mrt","lfs","hdu","lff","lffi","lmd","lfb","od","scl","nwt","it"};
     private static final DateTimeFormatter ISSUE=DateTimeFormatter.ofPattern("yyyyMM",Locale.ROOT);
     private static final Map<String,String> LANG=new HashMap<>();
     static{LANG.put("id","IN");LANG.put("en","E");}
@@ -39,13 +39,30 @@ final class PublicationLibrary {
         Pub(String symbol,String issue){this.symbol=symbol;this.issue=issue;}
         String key(){return symbol+(issue.isEmpty()?"":"-"+issue);}
     }
-    private static List<Pub> plan(){
+    private static List<Pub> plan(File dir,String from,String to){
         YearMonth now=YearMonth.now();List<Pub> p=new ArrayList<>();
-        for(int i=-4;i<=0;i++)p.add(new Pub("w",now.plusMonths(i).format(ISSUE)));
+        // Study issues precede the assigned meeting; prioritize roughly two months back.
+        for(int i:new int[]{-2,-1,-3,0,-4,1,2})p.add(new Pub("w",now.plusMonths(i).format(ISSUE)));
         YearMonth workbook=now.minusMonths((now.getMonthValue()-1)%2);
         p.add(new Pub("mwb",workbook.format(ISSUE)));p.add(new Pub("mwb",workbook.plusMonths(2).format(ISSUE)));
+        // Verified publication identifiers from the publisher's magazine download page.
+        // Keep a known issue until a more recent issue has been cached. Probe a small
+        // rolling window of publication-file metadata, not the website itself.
+        for(String symbol:new String[]{"g","wp"}){
+            String latest=symbol.equals("g")?"202611":"202609";
+            String prefix=from+"-"+to+"-"+symbol+"-";
+            String[] cached=dir.list();
+            if(cached!=null)for(String name:cached)if(name.startsWith(prefix)&&name.endsWith(".bin")){
+                String issue=name.substring(prefix.length(),name.length()-4);
+                if(issue.matches("[0-9]{6}")&&issue.compareTo(latest)>0)latest=issue;
+            }
+            p.add(new Pub(symbol,latest));
+            for(int i=-1;i<=2;i++){
+                String candidate=now.plusMonths(i).format(ISSUE);
+                if(candidate.compareTo(latest)>0)p.add(new Pub(symbol,candidate));
+            }
+        }
         for(String symbol:GENERAL)p.add(new Pub(symbol,""));
-        // Irregular periodical IDs are not guessed. A verified catalog must supply them.
         return p;
     }
     private static URL allowed(String value)throws Exception{
@@ -82,7 +99,7 @@ final class PublicationLibrary {
         boolean comparable(){return !checksum.isEmpty()||!modified.isEmpty();}
     }
     private static Remote metadata(Pub pub,String lang)throws Exception{
-        String url=ENDPOINT+"?booknum=0&output=json&pub="+pub.symbol+"&fileformat=epub&alllangs=0&langwritten="+lang+
+        String url=ENDPOINT+"?booknum=0&output=json&pub="+pub.symbol+"&fileformat=EPUB&alllangs=0&langwritten="+lang+"&txtCMSLang="+lang+
             (pub.issue.isEmpty()?"":"&issue="+pub.issue);
         HttpURLConnection c=open(url);
         JSONObject payload;
@@ -95,8 +112,17 @@ final class PublicationLibrary {
         String issue=payload.optString("issue","");
         if(!pub.issue.isEmpty()&&!issue.isEmpty()&&!issue.equals(pub.issue)&&!issue.equals(pub.issue+"00"))throw new IOException("Wrong issue");
         JSONArray files=payload.getJSONObject("files").getJSONObject(lang).getJSONArray("EPUB");
-        if(files.length()!=1)throw new IOException("Missing or ambiguous EPUB");
-        JSONObject row=files.getJSONObject(0),file=row.getJSONObject("file");
+        JSONObject row=null;
+        for(int i=0;i<files.length();i++){
+            JSONObject option=files.getJSONObject(i);
+            if(files.length()>1&&(!option.optString("edition","").isEmpty()||!option.optString("format","").isEmpty()))continue;
+            if(row!=null)throw new IOException("Ambiguous regular EPUB");
+            row=option;
+        }
+        if(row==null)throw new IOException("No regular EPUB");
+        if(!pub.symbol.equals(row.optString("pub",pub.symbol)))throw new IOException("Wrong publication file");
+        if(!"application/epub+zip".equals(row.optString("mimetype","application/epub+zip")))throw new IOException("Not an EPUB file");
+        JSONObject file=row.getJSONObject("file");
         Remote r=new Remote();r.url=allowed(file.getString("url")).toString();
         r.checksum=file.optString("checksum","");r.modified=file.optString("modifiedDatetime",file.optString("modifiedDateTime",""));
         r.size=row.optLong("filesize",row.optLong("fileSize",-1));
@@ -162,7 +188,7 @@ final class PublicationLibrary {
         if(!supports(from,to))throw new IOException("Publication downloads currently support Indonesian and English");
         File dir=dir(c);if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Cannot create reference directory");
         ByteArrayOutputStream all=new ByteArrayOutputStream();
-        int done=0,failed=0,cached=0,rows=0;List<Pub> publications=plan();String firstFailure="";
+        int done=0,failed=0,cached=0,rows=0;List<Pub> publications=plan(dir,from,to);String firstFailure="";
         for(Pub pub:publications){
             checkCancelled();
             progress.accept("Updating "+pub.key()+" ("+(++done)+"/"+publications.size()+")");
