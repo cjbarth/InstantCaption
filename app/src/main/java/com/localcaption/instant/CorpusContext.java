@@ -7,12 +7,14 @@ import java.util.regex.Pattern;
 
 /** Immutable, bounded local bilingual reference index. No network or Android dependency. */
 final class CorpusContext {
-    static final int MAX_BYTES = 1024 * 1024;
-    private static final int MAX_ROWS = 5000;
+    static final int MAX_BYTES = 8 * 1024 * 1024;
+    static final int MAX_ROWS = 30000;
     private static final int MAX_FIELD = 360;
     private static final Pattern NON_WORD = Pattern.compile("[^\\p{L}\\p{M}\\p{N}]+");
     static final CorpusContext EMPTY = new CorpusContext(Collections.emptyList());
     private final List<Entry> entries;
+    private final Map<String,List<Entry>> passageIndex = new HashMap<>();
+    private final List<Entry> terms = new ArrayList<>();
 
     private static final class Entry {
         final boolean term;
@@ -28,19 +30,31 @@ final class CorpusContext {
     }
     private CorpusContext(List<Entry> entries) {
         this.entries = Collections.unmodifiableList(new ArrayList<>(entries));
+        for (Entry e : entries) {
+            if (e.term) terms.add(e);
+            else for (String word : e.words)
+                passageIndex.computeIfAbsent(e.sourceLang+" "+e.targetLang+" "+word,k->new ArrayList<>()).add(e);
+        }
     }
     int size() { return entries.size(); }
+    static CorpusContext combine(CorpusContext manual, CorpusContext library) {
+        if (manual.size()==0) return library;
+        if (library.size()==0) return manual;
+        List<Entry> all=new ArrayList<>(manual.entries);
+        all.addAll(library.entries);
+        return new CorpusContext(all);
+    }
     static byte[] readBounded(InputStream input) throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         for (int n; (n = input.read(buffer)) != -1;) {
-            if (output.size() + n > MAX_BYTES) throw new IOException("Corpus exceeds 1 MiB");
+            if (output.size() + n > MAX_BYTES) throw new IOException("Corpus exceeds 8 MiB");
             output.write(buffer, 0, n);
         }
         return output.toByteArray();
     }
     static CorpusContext parse(byte[] input) throws IOException {
-        if (input.length > MAX_BYTES) throw new IOException("Corpus exceeds 1 MiB");
+        if (input.length > MAX_BYTES) throw new IOException("Corpus exceeds 8 MiB");
         String text;
         try {
             text = java.nio.charset.StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(input)).toString();
@@ -66,7 +80,7 @@ final class CorpusContext {
                 if (e.normalized.isEmpty()) throw new IOException("No source words at row " + lineNo);
                 String key = f[0] + "\t" + f[1] + "\t" + f[2] + "\t" + e.normalized;
                 if (seen.add(key)) entries.add(e);
-                if (entries.size() > MAX_ROWS) throw new IOException("Corpus exceeds 5000 unique rows");
+                if (entries.size() > MAX_ROWS) throw new IOException("Corpus exceeds 30000 unique rows");
             }
         }
         return new CorpusContext(entries);
@@ -93,7 +107,10 @@ final class CorpusContext {
         List<Entry> terms = new ArrayList<>();
         Entry passage = null;
         double best = 0;
-        for (Entry e : entries) {
+        Set<Entry> candidates=new LinkedHashSet<>(this.terms);
+        if (query.size()>=3) for (String word:query)
+            candidates.addAll(passageIndex.getOrDefault(sourceLang+" "+targetLang+" "+word,Collections.emptyList()));
+        for (Entry e : candidates) {
             if (!e.sourceLang.equals(sourceLang) || !e.targetLang.equals(targetLang)) continue;
             if (e.term) {
                 if (containsPhrase(normalized, e.normalized)) terms.add(e);

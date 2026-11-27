@@ -16,7 +16,8 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
     private Button model,speechModels,language,sourceLanguage,targetLanguage,export,clear;
     private TextView translationStatus,about;
     private Button appearance;
-    private Button importCorpus, clearCorpus;
+    private Button importCorpus, clearCorpus, updateLibrary;
+    private TextView libraryStatus;
     private boolean importingCorpus;
     private Switch fast;
     private boolean refreshing;
@@ -32,21 +33,25 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
         speechModels=button("");speechModels.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);speechModels.setOnClickListener(v->startActivity(new Intent(this,ModelManagerActivity.class).putExtra("tab",1)));speechModels.setMinHeight(dp(64));speechModels.setPadding(dp(12),dp(10),dp(12),dp(10));add(speechModels,-2);
         translationStatus=Ui.text(this,"",12,Ui.MINT);translationStatus.setPadding(dp(2),dp(5),dp(2),dp(5));content.addView(translationStatus);
         section(tr("翻译参考资料","Translation reference material"));
+        updateLibrary=button(tr("更新参考资料库","Update reference library"));
+        updateLibrary.setOnClickListener(v->confirmLibraryUpdate());add(updateLibrary,48);
+        libraryStatus=Ui.text(this,"",12,Ui.MUTED);content.addView(libraryStatus);
+        hint(tr("从出版者下载 EPUB；仅在联网准备时使用网络。实验性自动对齐。","Download EPUB files from the publisher; network is used only during preparation. Automatic alignment is experimental."));
         importCorpus=button(tr("导入双语 TSV","Import bilingual TSV"));
         importCorpus.setOnClickListener(v->{
-            if(importingCorpus||LocalEngine.get(this).configurationBusy())return;
+            if(importingCorpus||PublicationLibrary.running()||LocalEngine.get(this).configurationBusy())return;
             Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
             startActivityForResult(picker,32);
         });add(importCorpus,48);
         clearCorpus=button(tr("删除参考资料","Clear reference material"));
         clearCorpus.setOnClickListener(v->{
-            if(importingCorpus||LocalEngine.get(this).configurationBusy())return;
+            if(importingCorpus||PublicationLibrary.running()||LocalEngine.get(this).configurationBusy())return;
             new AlertDialog.Builder(this).setMessage(tr("删除本地翻译参考资料？","Remove local translation reference material?"))
                 .setNegativeButton(android.R.string.cancel,null).setPositiveButton(android.R.string.ok,(d,i)->{
-                    if(!importingCorpus&&!LocalEngine.get(this).configurationBusy()){CorpusStore.clear(this);changed();}
+                    if(!importingCorpus&&!PublicationLibrary.running()&&!LocalEngine.get(this).configurationBusy()){CorpusStore.clear(this);changed();}
                 }).show();
         });add(clearCorpus,48);
-        hint(tr("仅用于 HY-MT2。导入新的文件会替换本地参考资料。","HY-MT2 only. Importing a new file replaces the local reference material."));
+        hint(tr("仅用于 HY-MT2。导入新的文件会替换本地参考资料。","HY-MT2 only. Importing a new file replaces manual entries; downloaded references are separate."));
         section(tr("字幕显示","Caption display"));
         appearance=button("");appearance.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);appearance.setPadding(dp(14),dp(12),dp(14),dp(12));appearance.setOnClickListener(v->startActivity(new Intent(this,AppearanceActivity.class)));add(appearance,64);
         fast=toggle(tr("极速字幕","Fast captions"),tr("更频繁更新草稿；停止字幕后可修改","Updates drafts more often; stop captions before changing"),AppPrefs.fast(this),(v,on)->{if(!refreshing)AppPrefs.put(this,"fast",on);});
@@ -62,6 +67,29 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
         Button diagnostics=button(getString(R.string.diagnostics_title));diagnostics.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(R.string.diagnostics_title).setMessage(R.string.diagnostics_notice).setNegativeButton(android.R.string.cancel,null).setPositiveButton(R.string.export_action,(d,w)->startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"instant-caption-diagnostics.json"),31)).show());add(diagnostics,48);
         Button help=button(tr("使用说明与第三方许可","Help and third-party licenses"));help.setOnClickListener(v->help());add(help,48);
         about=Ui.text(this,"",12,Ui.MUTED);about.setLineSpacing(dp(3),1);about.setPadding(dp(2),dp(7),dp(2),dp(5));content.addView(about);
+    }
+    private void confirmLibraryUpdate(){
+        LocalEngine engine=LocalEngine.get(this);
+        String from=engine.sourceLanguage(),to=engine.targetLanguage();
+        if(importingCorpus||engine.configurationBusy()||PublicationLibrary.running()||!PublicationLibrary.supports(from,to))return;
+        new AlertDialog.Builder(this).setTitle(tr("更新参考资料库","Update reference library"))
+            .setMessage(tr("从 jw.org 下载公开 EPUB 文件，仅供个人非商业用途。自动对齐可能出错。","Download public EPUB files from jw.org for personal, noncommercial use. Automatic alignment may be inaccurate. Use Wi-Fi; downloads may be large."))
+            .setNegativeButton(android.R.string.cancel,null)
+            .setPositiveButton(android.R.string.ok,(d,w)->startLibraryUpdate(from,to)).show();
+    }
+    private void startLibraryUpdate(String from,String to){
+        if(importingCorpus||LocalEngine.get(this).configurationBusy()||!PublicationLibrary.start())return;
+        changed();
+        new Thread(()->{
+            String result;
+            try{result=PublicationLibrary.synchronize(getApplicationContext(),from,to,message->runOnUiThread(()->{
+                if(!isDestroyed())Ui.setText(libraryStatus,message);
+            }));}
+            catch(Exception e){result="Update failed: "+e.getMessage();}
+            finally{PublicationLibrary.finish();}
+            final String status=result;
+            runOnUiThread(()->{if(!isDestroyed()){Ui.setText(libraryStatus,status);changed();Toast.makeText(this,status,Toast.LENGTH_LONG).show();}});
+        },"publication-update").start();
     }
     private Button button(String s){Button b=Ui.button(this,s,Ui.CARD,Ui.WHITE);b.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);b.setPadding(dp(14),dp(10),dp(14),dp(10));return b;}
     private void add(View v,int height){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);if(height>0)v.setMinimumHeight(dp(height));p.topMargin=dp(6);content.addView(v,p);}
@@ -91,15 +119,18 @@ public class SettingsActivity extends BaseActivity implements CaptionState.Obser
         Ui.setText(targetLanguage,tr("字幕语言：","Subtitle language: ")+SpeechLanguage.label(this,engine.targetLanguage())+"  ▾");targetLanguage.setEnabled(!blocked);
         int corpusRows=CorpusStore.current(this).size();
         Ui.setText(importCorpus,tr("导入双语 TSV","Import bilingual TSV")+" ("+corpusRows+")");
-        importCorpus.setEnabled(!blocked&&!importingCorpus);
-        clearCorpus.setEnabled(!blocked&&!importingCorpus&&corpusRows>0);
+        boolean updating=PublicationLibrary.running();
+        boolean network=getPackageManager().checkPermission(android.Manifest.permission.INTERNET,getPackageName())==android.content.pm.PackageManager.PERMISSION_GRANTED;
+        updateLibrary.setEnabled(network&&!blocked&&!importingCorpus&&!updating&&PublicationLibrary.supports(engine.sourceLanguage(),engine.targetLanguage()));
+        importCorpus.setEnabled(!blocked&&!importingCorpus&&!updating);
+        clearCorpus.setEnabled(!blocked&&!importingCorpus&&!updating&&corpusRows>0);
         fast.setEnabled(!CaptionState.S.running);export.setEnabled(!CaptionState.S.lines.isEmpty());clear.setEnabled(!CaptionState.S.running&&!CaptionState.S.lines.isEmpty());String lang=AppPrefs.language(this);Ui.setText(language,tr("界面语言：","App language: ")+AppLanguage.label(this,lang));
         String info=tr("瞬译 ","Instant Caption ")+BuildConfig.VERSION_NAME+"\n"+getString(R.string.about_local_models);Ui.setText(about,info);
     }
     @Override protected void onDestroy(){CaptionState.S.unobserve(this);super.onDestroy();}
     @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);
         if(req==32){
-            if(result==RESULT_OK&&data!=null&&data.getData()!=null&&!importingCorpus&&!LocalEngine.get(this).configurationBusy()){
+            if(result==RESULT_OK&&data!=null&&data.getData()!=null&&!importingCorpus&&!PublicationLibrary.running()&&!LocalEngine.get(this).configurationBusy()){
                 Uri uri=data.getData();importingCorpus=true;changed();
                 new Thread(()->{
                     String message;
