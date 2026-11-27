@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Experimental personal-use EPUB synchronizer; no HTML scraping or account access."""
-from __future__ import annotations
+"""Experimental public EPUB download preparation; no content ships with this tool."""
 import argparse
 import datetime as dt
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import tempfile
 import time
@@ -14,9 +12,8 @@ import urllib.parse
 import urllib.request
 import zipfile
 from dataclasses import dataclass, asdict
+from pathlib import Path
 
-# Public download metadata interface observed in public third-party documentation.
-# Availability and permission for each series must be confirmed before release.
 ENDPOINT = 'https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS'
 LANGUAGES = {'en': 'E', 'id': 'IN'}
 SERIES = ('ijwbq', 'ijwyp', 'ijwcl', 'ijwfq', 'mrt')
@@ -48,19 +45,16 @@ class Remote:
     modified: str
     size: int
 
-
 def month(date, delta):
     n = date.year * 12 + date.month - 1 + delta
     return f'{n//12:04d}{n%12+1:02d}'
 
-
 def plan(today, extra=()):
-    # Candidate issue IDs, not a verified meeting calendar.
+    # Candidate issue IDs; not a verified meeting calendar.
     w = [Publication('w', month(today, i)) for i in range(-4, 1)]
     start = -((today.month-1) % 2)
     mwb = [Publication('mwb', month(today, i)) for i in (start, start+2)]
     return list(dict.fromkeys(w + mwb + [Publication(p) for p in SERIES+BOOKS] + list(extra)))
-
 
 def request_url(pub, language):
     params = {'booknum': '0', 'output': 'json', 'pub': pub.symbol,
@@ -68,7 +62,6 @@ def request_url(pub, language):
     if pub.issue:
         params['issue'] = pub.issue
     return ENDPOINT + '?' + urllib.parse.urlencode(params)
-
 
 def allowed(url):
     p = urllib.parse.urlsplit(url)
@@ -78,11 +71,9 @@ def allowed(url):
         raise ValueError('Download must use HTTPS on a publisher domain')
     return url
 
-
 class Redirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return super().redirect_request(req, fp, code, msg, headers, allowed(newurl))
-
 
 class Transport:
     def __init__(self):
@@ -101,7 +92,6 @@ class Transport:
     def download(self, remote):
         return self.open(remote.url)
 
-
 def parse_metadata(payload, pub, lang):
     if not isinstance(payload, dict): raise ValueError('Invalid metadata')
     if payload.get('pub') not in (None, '', pub.symbol): raise ValueError('Mismatched publication')
@@ -117,13 +107,11 @@ def parse_metadata(payload, pub, lang):
     return Remote(allowed(file['url']), str(file.get('checksum') or ''),
                   str(file.get('modifiedDatetime') or file.get('modifiedDateTime') or ''), size)
 
-
 def digest_file(path, algorithm='sha256'):
     h = hashlib.new(algorithm)
     with path.open('rb') as f:
         for chunk in iter(lambda: f.read(65536), b''): h.update(chunk)
     return h.hexdigest()
-
 
 def validate_epub(path):
     with zipfile.ZipFile(path) as z:
@@ -132,21 +120,19 @@ def validate_epub(path):
             raise ValueError('Not an EPUB')
         if 'META-INF/container.xml' not in z.namelist(): raise ValueError('Incomplete EPUB')
 
-
 def same(remote, previous, root):
     if not previous: return False
     old = previous['remote']
-    # Never treat a mutable URL alone as a version identifier.
     if remote.checksum:
         match = remote.checksum == old.get('checksum') and remote.size == old.get('size')
     else:
         match = bool(remote.modified) and remote.modified == old.get('modified') and remote.size == old.get('size')
     if not match: return False
-    name = previous['file']
-    if not re.fullmatch('[0-9a-f]{64}[.]epub', name): return False
-    path = root / name
+    filename = previous['file']
+    if not re.fullmatch(r'[a-f0-9]{64}\.epub', filename):
+        return False
+    path = root / filename
     return path.is_file() and path.stat().st_size == remote.size and digest_file(path)==previous['sha256']
-
 
 def download(root, transport, remote):
     temp = None
@@ -160,7 +146,6 @@ def download(root, transport, remote):
                     h.update(chunk); f.write(chunk)
             if n!=remote.size: raise ValueError('Truncated download')
             f.flush(); os.fsync(f.fileno())
-        # Known hexadecimal checksum lengths; opaque checksums remain version markers.
         checksum=remote.checksum.lower()
         alg={32:'md5',40:'sha1',64:'sha256'}.get(len(checksum)) if re.fullmatch('[0-9a-f]+', checksum) else None
         if alg and digest_file(temp,alg)!=checksum: raise ValueError('Publisher checksum mismatch')
@@ -170,7 +155,6 @@ def download(root, transport, remote):
     finally:
         if temp is not None: temp.unlink(missing_ok=True)
 
-
 def atomic_json(path, value):
     name=None
     try:
@@ -179,7 +163,6 @@ def atomic_json(path, value):
         os.replace(name,path); name=None
     finally:
         if name: name.unlink(missing_ok=True)
-
 
 def synchronize(root, publications, languages, transport):
     root.mkdir(parents=True,exist_ok=True)
@@ -197,7 +180,6 @@ def synchronize(root, publications, languages, transport):
                 previous=before.get(lang)
                 if same(remote,previous,root): after[lang]=previous
                 else: after[lang]=download(root,transport,remote); changed=True
-            # Commit only once BOTH languages have been downloaded and validated.
             if changed:
                 next_state={'version':1,'pairs':{**state['pairs'],key:after}}
                 atomic_json(statepath,next_state); state=next_state
@@ -205,7 +187,6 @@ def synchronize(root, publications, languages, transport):
         except Exception as exc:
             results.append((key,'failed: '+str(exc)))
     return results
-
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
